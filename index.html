@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Video Call</title>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f0f0f0;
+    }
+    
+    #videoContainer {
+      /* display: flex;
+      flex-wrap: wrap; */
+      gap: 10px;
+      padding: 10px;
+    }
+    
+    .video-box {
+      width: 100%;
+      height: 50vh;
+      background: #333;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .controls {
+      position: fixed;
+      width: 100%;
+      bottom: 20px;
+      align-content: center;
+      justify-content: space-between;
+      padding: 10px;
+      margin-left: 5px;
+      font-size: 140%;
+      
+      
+    }
+    
+    button {
+      background: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 45%;
+      padding: 10px;
+    }
+    
+    #leaveBtn {
+      background: red;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="videoContainer"></div>
+  <div class="controls">
+    <button id="joinBtn">Join Call</button>
+    <button id="leaveBtn" disabled>Leave Call</button>
+  </div>
+  
+  <script>
+    // Firebase Config (আপনার কনফিগ পেস্ট করুন)
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyBDkGNmHLW5MKrPp90tyA4uXABIQi_JZ1Q",
+      authDomain: "my-project-c6860.firebaseapp.com",
+      databaseURL: "https://my-project-c6860-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "my-project-c6860",
+      storageBucket: "my-project-c6860.firebasestorage.app",
+      messagingSenderId: "327820336321",
+      appId: "1:327820336321:web:f3f3e41ff1089a869a0840"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    
+    // DOM Elements
+    const videoContainer = document.getElementById('videoContainer');
+    const joinBtn = document.getElementById('joinBtn');
+    const leaveBtn = document.getElementById('leaveBtn');
+    
+    // Variables
+    let localStream;
+    let peer;
+    let currentUserId = 'user-' + Math.random().toString(36).substr(2, 9);
+    const peers = {};
+    
+    // Join Call
+    joinBtn.addEventListener('click', async () => {
+      try {
+        // 1. ক্যামেরা/মাইক্রোফোন অ্যাক্সেস করুন
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        
+        // 2. PeerJS ইনিশিয়ালাইজ করুন
+        peer = new Peer(currentUserId);
+        
+        // 3. Firebase-এ ইউজার যোগ করুন
+        await db.ref('users/' + currentUserId).set({
+          online: true,
+          timestamp: firebase.database.ServerValue.TIMESTAMP
+        });
+        
+        // 4. লোকাল ভিডিও শো করুন
+        addVideoStream('local', localStream);
+        
+        // 5. অন্যান্য ইউজারদের সাথে কানেক্ট করুন
+        peer.on('call', (call) => {
+          call.answer(localStream);
+          call.on('stream', (remoteStream) => {
+            addVideoStream(call.peer, remoteStream);
+          });
+        });
+        
+        // 6. অনলাইন ইউজারদের মনিটর করুন
+        db.ref('users').on('value', (snapshot) => {
+          const users = snapshot.val() || {};
+          for (let userId in users) {
+            if (userId !== currentUserId && users[userId].online && !peers[userId]) {
+              connectToUser(userId);
+            }
+          }
+        });
+        
+        joinBtn.disabled = true;
+        leaveBtn.disabled = false;
+      } catch (err) {
+        console.error("Error:", err);
+      }
+    });
+    
+    // Leave Call
+    leaveBtn.addEventListener('click', () => {
+      db.ref('users/' + currentUserId).remove();
+      Object.keys(peers).forEach(userId => {
+        peers[userId].close();
+      });
+      localStream.getTracks().forEach(track => track.stop());
+      document.getElementById('local').remove();
+      joinBtn.disabled = false;
+      leaveBtn.disabled = true;
+    });
+    
+    // WebRTC Connection তৈরি করুন
+    function connectToUser(userId) {
+      const call = peer.call(userId, localStream);
+      call.on('stream', (remoteStream) => {
+        addVideoStream(userId, remoteStream);
+      });
+      call.on('close', () => {
+        document.getElementById(userId)?.remove();
+      });
+      peers[userId] = call;
+    }
+    
+    // ভিডিও স্ক্রিনে যোগ করুন
+    function addVideoStream(id, stream) {
+      if (document.getElementById(id)) return;
+      const videoBox = document.createElement('div');
+      videoBox.className = 'video-box';
+      videoBox.id = id;
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
+      if (id === 'local') {
+        video.muted = true;
+      }
+      videoBox.appendChild(video);
+      videoContainer.appendChild(videoBox);
+    }
+  </script>
+</body>
+
+</html>
